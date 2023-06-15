@@ -2,7 +2,8 @@
 
 Please include a summary of the changes and the related issue. Please also include relevant motivation and context. List any dependencies that are required for this change.
 
-Fixes # (issue)
+# Architecture Decision Record
+- [ ] I confirm that my pull request complies with all [ADRs](https://backstage.almacareer.tech/catalog/default/technology/github/adrs)
 
 ## Type of change
 
