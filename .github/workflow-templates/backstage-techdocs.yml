@@ -1,0 +1,85 @@
+name: Publish TechDocs Site
+
+on:
+  push:
+    branches: [ $default-branch ]
+    paths:
+      - '**/docs/**/*'
+
+jobs:
+  publish-techdocs-site:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Find and verify all catalog-info.yaml files 
+        run: |
+          find . -type f -name "catalog-info.yaml" -print > catalog_files
+
+          while IFS= read -r catalog_file; do
+            export CATALOG_FILE_PATH="$catalog_file"
+            
+            if [ -f "$CATALOG_FILE_PATH" ]; then
+              echo -e "\nThe locations of all found catalog-info.yaml files:\n$(cat catalog_files)" 
+              echo -e "\nProceeding the workflow.\n"
+              exit 0
+            else 
+              echo -e "\nNo catalog-info.yaml file exists yet."
+              echo -e "\nStopping the workflow.\n"
+              exit 1
+            fi
+
+          done < catalog_files
+          
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: ${{ secrets.BACKSTAGE_IAM_ROLE }}
+          role-session-name: 'gha-${{ github.repository_owner }}+${{ github.event.repository.name }},Run${{ github.run_id }}.${{ github.run_attempt }}'
+          aws-region: ${{ secrets.BACKSTAGE_AWS_REGION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install techdocs-cli
+        run: sudo npm install -g @techdocs/cli
+
+      - name: Install mkdocs and plugins
+        run: python -m pip install mkdocs-techdocs-core==1.*
+
+      - name: Generate and publish all docs sites
+        run: |
+          while IFS= read -r catalog_file; do
+            export CATALOG_FILE_PATH="$catalog_file"
+
+            ANNOTATION=$(cat $CATALOG_FILE_PATH | grep 'backstage.io/techdocs-ref' | grep -o 'dir:[^ ]*' | cut -d':' -f2)
+
+            if [ -n "$ANNOTATION" ]; then
+              MKDOCS_SOURCE_PATH=$(dirname "$CATALOG_FILE_PATH")/$ANNOTATION
+              echo -e "\nNew mkdocs.yaml found in:\n$MKDOCS_SOURCE_PATH"
+              echo -e "\nProceeding further.\n"
+            
+              export ENTITY_KIND=$(cat $CATALOG_FILE_PATH | yq eval '.kind' -)
+              export ENTITY_NAME=$(cat $CATALOG_FILE_PATH | yq eval '.metadata.name' -)
+              export DOCS_URL="url:https://github.com/${{ github.event.repository.full_name }}/edit/${{ github.event.repository.default_branch }}/$(echo $MKDOCS_SOURCE_PATH | sed 's/^\.\///;s/\.$//')/docs"
+            
+              techdocs-cli generate --source-dir $MKDOCS_SOURCE_PATH --output-dir $MKDOCS_SOURCE_PATH/site/ --techdocs-ref $DOCS_URL --no-docker --verbose
+            
+              techdocs-cli publish --publisher-type awsS3 --directory $MKDOCS_SOURCE_PATH/site/ --storage-name ${{ secrets.BACKSTAGE_TECHDOCS_S3_BUCKET_NAME }} --entity ${{ secrets.BACKSTAGE_ENTITY_NAMESPACE }}/$ENTITY_KIND/$ENTITY_NAME
+            
+            else
+              echo -e "\nAnnotation 'backstage.io/techdocs-ref' with 'dir' does not exist for this $catalog_file."
+              echo -e "\nSkipping to the next one.\n"
+            fi
+          
+          done < catalog_files
