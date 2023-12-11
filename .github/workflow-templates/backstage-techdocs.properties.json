@@ -1,0 +1,8 @@
+{
+    "name": "Publish TechDocs Site",
+    "description": "Backstage Organization CI starter workflow.",
+    "iconName": "backstage",
+    "categories": [
+        "Automation"
+    ]
+}
