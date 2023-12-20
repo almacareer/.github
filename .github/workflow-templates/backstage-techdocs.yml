@@ -12,31 +12,20 @@ jobs:
     permissions:
       id-token: write
       contents: read
-      
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Find and verify all catalog-info.yaml files 
+      - id: verify
+        name: Find and verify all catalog-info.yaml files
         run: |
           find . -type f -name "catalog-info.yaml" -print > catalog_files
 
-          while IFS= read -r catalog_file; do
-            export CATALOG_FILE_PATH="$catalog_file"
-            
-            if [ -f "$CATALOG_FILE_PATH" ]; then
-              echo -e "\nThe locations of all found catalog-info.yaml files:\n$(cat catalog_files)" 
-              echo -e "\nProceeding the workflow.\n"
-              exit 0
-            else 
-              echo -e "\nNo catalog-info.yaml file exists yet."
-              echo -e "\nStopping the workflow.\n"
-              exit 1
-            fi
-
-          done < catalog_files
-          
+          echo "catalogFileFound=$({catalog_files[*]} > 0)" >> $GITHUB_OUTPUT
+          exit 0
       - name: Configure AWS credentials
+        if: steps.verify.catalogFileFound
         uses: aws-actions/configure-aws-credentials@v3
         with:
           role-to-assume: ${{ secrets.BACKSTAGE_IAM_ROLE }}
@@ -44,20 +33,25 @@ jobs:
           aws-region: ${{ secrets.BACKSTAGE_AWS_REGION }}
 
       - name: Setup Node.js
+        if: steps.verify.catalogFileFound
         uses: actions/setup-node@v3
 
       - name: Setup Python
+        if: steps.verify.catalogFileFound
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
       - name: Install techdocs-cli
+        if: steps.verify.catalogFileFound
         run: sudo npm install -g @techdocs/cli
 
       - name: Install mkdocs and plugins
+        if: steps.verify.catalogFileFound
         run: python -m pip install mkdocs-techdocs-core==1.*
 
-      - name: Generate and publish all docs sites
+      - name: Generate and publish all docs site
+        if: steps.verify.catalogFileFound
         run: |
           while IFS= read -r catalog_file; do
             export CATALOG_FILE_PATH="$catalog_file"
